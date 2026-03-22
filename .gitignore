@@ -1,0 +1,98 @@
+# =========================
+# OS / System files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+venv/
+.env/
+.venv/
+backend/venv/
+frontend/venv/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Logs & temp
+*.log
+*.tmp
+*.swp
+
+# Testing / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# =========================
+# Node / Frontend
+# =========================
+node_modules/
+frontend/node_modules/
+
+# Build outputs
+frontend/build/
+frontend/dist/
+.next/
+out/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# Environment variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Docker
+# =========================
+*.pid
+*.seed
+*.pid.lock
+
+# Ignore docker overrides if local
+docker-compose.override.yml
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.iml
+
+# =========================
+# Data / local artifacts
+# =========================
+backend/data/*
+!backend/data/.gitkeep
+
+# =========================
+# Misc
+# =========================
+*.sqlite3
+*.db
+
+# Mac Python cache
+*.DS_Store
+
+# =========================
+# Optional: test/debug files
+# =========================
+**/test_debug.py

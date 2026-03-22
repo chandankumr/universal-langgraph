@@ -1,0 +1,159 @@
+# FastAPI & Web
+fastapi
+uvicorn[standard]
+python-multipart
+httpx
+
+# Database
+sqlalchemy
+psycopg2-binary
+alembic
+
+# Auth
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+
+# Encryption
+cryptography
+
+# LangChain ecosystem (clean set)
+langchain
+langchain-community
+langgraph
+
+# LLM providers
+langchain-openai
+langchain-anthropic
+langchain-google-genai
+# ❌ removed ollama (causes conflicts)
+langchain-azure-ai
+azure-identity
+
+# Vector DBs
+chromadb
+langchain-pinecone
+qdrant-client
+weaviate-client
+pymilvus
+
+# Embeddings
+sentence-transformers
+tiktoken
+
+# File processing
+pypdf
+python-docx
+unstructured
+markdown
+
+# Cache
+redis
+
+# Monitoring
+langsmith
+
+# Utils
+pydantic
+pydantic-settings
+python-dotenv
+aiofiles
+
+# MCP
+mcp
+
+# Dev
+gunicorn
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# # FastAPI & Web
+# fastapi==0.109.0
+# uvicorn[standard]==0.27.0
+# python-multipart==0.0.6
+# httpx==0.26.0
+
+# # Database
+# sqlalchemy==2.0.25
+# psycopg2-binary==2.9.9
+# alembic==1.13.1
+
+# # Authentication
+# python-jose[cryptography]==3.3.0
+# passlib[bcrypt]==1.7.4
+# bcrypt==4.1.2
+
+# # Encryption
+# cryptography==42.0.0
+
+# # LangChain & LangGraph
+# langgraph==0.0.40
+# # langchain==0.1.0
+# langchain
+# # langchain-core==0.1.46
+# langchain-core
+# langchain-community
+# # langchain-community==0.0.20
+# langchain-text-splitters==0.0.1
+
+# # LLM Providers
+# langchain-openai==0.0.5
+# langchain-anthropic==0.1.0
+# langchain-google-genai==0.0.1
+# langchain-ollama==0.1.0
+# langchain-azure-ai==0.1.0
+# azure-identity==1.15.0
+
+# # Vector Databases
+# chromadb==0.4.22
+# # langchain-pinecone==0.1.
+# langchain-pinecone
+# qdrant-client==1.7.3
+# weaviate-client==3.26.0
+# pymilvus==2.3.6
+
+# # Embeddings
+# sentence-transformers==2.3.1
+# tiktoken==0.5.2
+
+# # File Processing
+# pypdf==4.0.0
+# python-docx==1.1.0
+# unstructured==0.11.8
+# markdown==3.5.2
+
+# # Caching
+# redis==5.0.1
+
+# # Monitoring
+# # langsmith==0.0.85
+# langsmith
+
+# # Utilities
+# pydantic==2.5.3
+# pydantic-settings==2.1.0
+# python-dotenv==1.0.0
+# aiofiles==23.2.1
+
+# # MCP (Model Context Protocol)
+# # mcp==0.1.0
+# mcp
+
+# # DevOps
+# gunicorn==21.2.0

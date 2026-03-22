@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  backend:
+    environment:
+      - GPU_TYPE=nvidia
+      - OLLAMA_BASE_URL=http://ollama:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  ollama:
+    profiles:
+      - nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# version: '3.8'
+
+# services:
+#   backend:
+#     # Inherits from main docker-compose.yml
+#     deploy:
+#       resources:
+#         reservations:
+#           devices:
+#             - driver: nvidia
+#               count: 1
+#               capabilities: [gpu]
+#     environment:
+#       - OLLAMA_BASE_URL=http://ollama:11434
+
+#   # Ollama for Local LLM (GPU-accelerated)
+#   ollama:
+#     image: ollama/ollama:latest
+#     ports:
+#       - "11434:11434"
+#     volumes:
+#       - ./data/ollama:/root/.ollama
+#     deploy:
+#       resources:
+#         reservations:
+#           devices:
+#             - driver: nvidia
+#               count: 1
+#               capabilities: [gpu]
+#     restart: unless-stopped
+#     profiles:
+#       - gpu
+
+#   # NVIDIA Device Plugin (for Kubernetes)
+#   nvidia-device-plugin:
+#     image: nvidia/k8s-device-plugin:v0.14.0
+#     profiles:
+#       - k8s
