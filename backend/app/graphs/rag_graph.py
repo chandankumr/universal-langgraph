@@ -9,6 +9,7 @@ from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 import logging
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -26,46 +27,125 @@ class RAGState(TypedDict):
 # LLM SETUP
 # ==============================================================================
 
-def get_llm():
-    """Get LLM based on settings."""
+# def get_llm():
+#     """Get LLM based on settings."""
+#     try:
+#         if settings.OLLAMA_BASE_URL:
+#             llm = ChatOllama(
+#                 model=settings.OLLAMA_MODEL,
+#                 base_url=settings.OLLAMA_BASE_URL,
+#                 temperature=0,
+#             )
+#             logger.info(f"✅ Ollama LLM initialized: {settings.OLLAMA_MODEL}")
+#             return llm
+#         elif settings.GROQ_API_KEY:
+#             llm = ChatGroq(
+#                 model=settings.GROQ_MODEL,
+#                 api_key=settings.GROQ_API_KEY,
+#                 temperature=0,
+#             )
+#             logger.info("✅ Groq LLM initialized")
+#             return llm
+#         elif settings.OPENAI_API_KEY:
+#             llm = ChatOpenAI(
+#                 model=settings.OPENAI_MODEL,
+#                 temperature=0,
+#                 api_key=settings.OPENAI_API_KEY,
+#             )
+#             logger.info("✅ OpenAI LLM initialized")
+#             return llm
+#         elif settings.GOOGLE_API_KEY:
+#             llm = ChatGoogleGenerativeAI(
+#                 model=settings.GOOGLE_MODEL,  # e.g. "gemini-pro"
+#                 google_api_key=settings.GOOGLE_API_KEY,
+#                 temperature=0,
+#             )
+#             logger.info(f"✅ Google Gemini LLM initialized: {settings.GOOGLE_MODEL}")
+#             return llm
+#         else:
+#             logger.warning("⚠️ No OpenAI API key found")
+#             return None
+#     except Exception as e:
+#         logger.error(f"❌ LLM initialization failed: {str(e)}")
+#         return None
+
+def get_llm(db: Session, user_id: str):
+    """Get LLM based on user's saved preferences."""
+    from app.models import UserPreference
+    from app.encryption import encryption_service
+    
+    # Get user preferences
+    pref = db.query(UserPreference).filter(
+        UserPreference.user_id == user_id
+    ).first()
+    
+    provider = pref.preferred_llm_provider if pref else "ollama"
+    model = pref.preferred_llm_model if pref else settings.OLLAMA_MODEL
+    
     try:
-        if settings.OLLAMA_BASE_URL:
-            llm = ChatOllama(
-                model=settings.OLLAMA_MODEL,
+        if provider == "ollama":
+            return ChatOllama(
+                model=model,
                 base_url=settings.OLLAMA_BASE_URL,
-                temperature=0,
+                temperature=0
             )
-            logger.info(f"✅ Ollama LLM initialized: {settings.OLLAMA_MODEL}")
-            return llm
-        elif settings.GROQ_API_KEY:
-            llm = ChatGroq(
-                model=settings.GROQ_MODEL,
-                api_key=settings.GROQ_API_KEY,
-                temperature=0,
+        
+        elif provider == "azure_openai":
+            api_key = None
+            if pref and pref.custom_api_keys and "azure_openai" in pref.custom_api_keys:
+                api_key = encryption_service.decrypt(pref.custom_api_keys["azure_openai"])
+            else:
+                api_key = settings.AZURE_OPENAI_API_KEY
+            
+            return AzureChatOpenAI(
+                azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+                api_key=api_key,
+                api_version="2024-02-15-preview",
+                azure_deployment=model,
+                temperature=0
             )
-            logger.info("✅ Groq LLM initialized")
-            return llm
-        elif settings.OPENAI_API_KEY:
-            llm = ChatOpenAI(
-                model=settings.OPENAI_MODEL,
-                temperature=0,
-                api_key=settings.OPENAI_API_KEY,
+        
+        elif provider == "openai":
+            api_key = None
+            if pref and pref.custom_api_keys and "openai" in pref.custom_api_keys:
+                api_key = encryption_service.decrypt(pref.custom_api_keys["openai"])
+            else:
+                api_key = settings.OPENAI_API_KEY
+            
+            return ChatOpenAI(
+                model=model,
+                api_key=api_key,
+                temperature=0
             )
-            logger.info("✅ OpenAI LLM initialized")
-            return llm
-        elif settings.GOOGLE_API_KEY:
-            llm = ChatGoogleGenerativeAI(
-                model=settings.GOOGLE_MODEL,  # e.g. "gemini-pro"
-                google_api_key=settings.GOOGLE_API_KEY,
-                temperature=0,
+        
+        elif provider == "groq":
+            api_key = None
+            if pref and pref.custom_api_keys and "groq" in pref.custom_api_keys:
+                api_key = encryption_service.decrypt(pref.custom_api_keys["groq"])
+            
+            return ChatGroq(
+                model=model,
+                api_key=api_key,
+                temperature=0
             )
-            logger.info(f"✅ Google Gemini LLM initialized: {settings.GOOGLE_MODEL}")
-            return llm
+        
+        elif provider == "google":
+            api_key = None
+            if pref and pref.custom_api_keys and "google" in pref.custom_api_keys:
+                api_key = encryption_service.decrypt(pref.custom_api_keys["google"])
+            
+            return ChatGoogleGenerativeAI(
+                model=model,
+                api_key=api_key,
+                temperature=0
+            )
+        
         else:
-            logger.warning("⚠️ No OpenAI API key found")
-            return None
+            logger.warning(f"Unknown provider: {provider}, falling back to Ollama")
+            return ChatOllama(model="llama3.1:8b", base_url=settings.OLLAMA_BASE_URL)
+            
     except Exception as e:
-        logger.error(f"❌ LLM initialization failed: {str(e)}")
+        logger.error(f"LLM initialization failed: {e}")
         return None
 
 llm = get_llm()

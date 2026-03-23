@@ -65,9 +65,11 @@ mcp
 # Dev
 gunicorn
 
-
-
-
+langchain-groq
+langchain-google-genai
+langchain_ollama
+langchain-huggingface
+sentence-transformers
 
 
 

@@ -87,3 +87,17 @@ class Document(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     user = relationship("User", back_populates="documents")
+
+class UserPreference(Base):
+    __tablename__ = "user_preferences"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, unique=True)
+    preferred_llm_provider = Column(String, default="ollama")
+    preferred_llm_model = Column(String, default="llama3.1:8b")
+    preferred_vector_db = Column(String, default="chroma")
+    custom_api_keys = Column(JSON, default=dict)  # Encrypted API keys per provider
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    user = relationship("User", backref="preferences")

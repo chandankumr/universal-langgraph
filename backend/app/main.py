@@ -20,6 +20,7 @@ from app.schemas import (
     UserCreate, UserLogin, APIKeyCreate, VectorDBConfigCreate,
     QueryRequest, QueryResponse, DeploymentRequest, DeploymentResponse, ResearchRequest, Token
 )
+from app.services.document_service import document_service
 # from app.graphs import auto_research_graph
 
 # Setup
@@ -84,14 +85,39 @@ async def register(
 
 @app.post("/api/v1/keys", response_model=Dict[str, Any])
 async def add_api_key(
-    # key_ APIKeyCreate,
     key: APIKeyCreate,
     current_user: User = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Add API key for a provider (encrypted)."""
-    # Encrypt and store
-    pass
+    from app.models import APIKey
+    from app.encryption import encryption_service
+    import uuid
+    
+    # Check if key already exists for this provider
+    existing = db.query(APIKey).filter(
+        APIKey.user_id == current_user.id,
+        APIKey.provider == key.provider
+    ).first()
+    
+    if existing:
+        # Update existing
+        existing.encrypted_key = encryption_service.encrypt(key.api_key)
+        existing.is_active = True
+        db.commit()
+        return {"message": f"API key for {key.provider} updated", "status": "updated"}
+    else:
+        # Create new
+        db_key = APIKey(
+            id=str(uuid.uuid4()),
+            user_id=current_user.id,
+            provider=key.provider,
+            encrypted_key=encryption_service.encrypt(key.api_key),
+            is_active=True
+        )
+        db.add(db_key)
+        db.commit()
+        return {"message": f"API key for {key.provider} added", "status": "created"}
 
 @app.get("/api/v1/keys", response_model=List[Dict[str, Any]])
 async def list_api_keys(
@@ -99,7 +125,21 @@ async def list_api_keys(
     db: Session = Depends(get_db)
 ):
     """List all configured API keys (masked)."""
-    pass
+    from app.models import APIKey
+    
+    keys = db.query(APIKey).filter(APIKey.user_id == current_user.id).all()
+    
+    return [
+        {
+            "id": k.id,
+            "provider": k.provider,
+            "is_active": k.is_active,
+            "created_at": k.created_at.isoformat(),
+            "last_used": k.last_used.isoformat() if k.last_used else None,
+            "key_preview": k.encrypted_key[:10] + "..." if k.encrypted_key else "Not set"
+        }
+        for k in keys
+    ]
 
 @app.delete("/api/v1/keys/{key_id}")
 async def delete_api_key(
@@ -108,7 +148,21 @@ async def delete_api_key(
     db: Session = Depends(get_db)
 ):
     """Delete API key."""
-    pass
+    from app.models import APIKey
+    
+    key = db.query(APIKey).filter(
+        APIKey.id == key_id,
+        APIKey.user_id == current_user.id
+    ).first()
+    
+    if not key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    db.delete(key)
+    db.commit()
+    
+    return {"message": "API key deleted", "key_id": key_id}
+
 
 @app.post("/api/v1/keys/test/{provider}")
 async def test_api_key(
@@ -117,7 +171,12 @@ async def test_api_key(
     db: Session = Depends(get_db)
 ):
     """Test API key connection."""
-    return llm_service.test_connection(db, current_user.id, provider)
+    result = llm_service.test_connection(db, current_user.id, provider)
+    if result["success"]:
+        return {"status": "success", "message": f"{provider} connection OK"}
+    else:
+        raise HTTPException(status_code=400, detail=result.get("error", "Connection failed"))
+
 
 # ==============================================================================
 # VECTOR DB MANAGEMENT
@@ -148,17 +207,66 @@ async def configure_vector_db(
     db: Session = Depends(get_db)
 ):
     """Configure vector DB connection."""
-    # Store config (encrypt sensitive data)
-    pass
+    from app.models import VectorDBConfig
+    from app.encryption import encryption_service
+    import uuid
+    
+    # Encrypt sensitive data in config
+    encrypted_config = config_data.config.copy()
+    if "api_key" in encrypted_config:
+        encrypted_config["api_key"] = encryption_service.encrypt(encrypted_config["api_key"])
+    
+    # Check if config exists
+    existing = db.query(VectorDBConfig).filter(
+        VectorDBConfig.user_id == current_user.id,
+        VectorDBConfig.db_type == config_data.db_type
+    ).first()
+    
+    if existing:
+        existing.config = encrypted_config
+        existing.collection_name = config_data.collection_name
+        db.commit()
+        return {"message": "Vector DB configuration updated", "status": "updated"}
+    else:
+        db_config = VectorDBConfig(
+            id=str(uuid.uuid4()),
+            user_id=current_user.id,
+            db_type=config_data.db_type,
+            config=encrypted_config,
+            collection_name=config_data.collection_name,
+            is_active=True
+        )
+        db.add(db_config)
+        db.commit()
+        return {"message": "Vector DB configuration saved", "status": "created"}
 
-@app.get("/api/v1/vector-dbs/status")
+@app.get("/api/v1/vector-dbs/status", response_model=Dict[str, Any])
 async def get_vector_db_status(
     current_user: User = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get vector DB connection status."""
-    # Need embeddings service here
-    pass
+    from app.models import VectorDBConfig
+    
+    config = db.query(VectorDBConfig).filter(
+        VectorDBConfig.user_id == current_user.id,
+        VectorDBConfig.is_active == True
+    ).first()
+    
+    if config:
+        return {
+            "configured": True,
+            "db_type": config.db_type,
+            "collection": config.collection_name,
+            "status": "active"
+        }
+    else:
+        return {
+            "configured": False,
+            "db_type": settings.DEFAULT_VECTOR_DB,
+            "collection": "default",
+            "status": "using defaults"
+        }
 
 # ==============================================================================
 # DOCUMENT MANAGEMENT
@@ -167,21 +275,53 @@ async def get_vector_db_status(
 @app.post("/api/v1/documents/upload", response_model=Dict[str, Any])
 async def upload_document(
     file: UploadFile = File(...),
-    collection_id: Optional[str] = Form(None),
+    collection_id: str = Form("default"),
     current_user: User = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Upload document to vector DB."""
-    # Process and store
-    pass
+    import tempfile
+    from pathlib import Path
+    
+    # Validate file type
+    allowed_types = ["pdf", "txt", "md", "docx"]
+    file_ext = file.filename.split(".")[-1].lower()
+    
+    if file_ext not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type not allowed. Allowed: {', '.join(allowed_types)}"
+        )
+    
+    # Save file temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}") as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+    
+    try:
+        result = document_service.upload_document(
+            db=db,
+            user_id=current_user.id,
+            file_path=tmp_path,
+            filename=file.filename,
+            collection_id=collection_id,
+            file_type=file_ext,
+            file_size=len(content)
+        )
+        return result
+    finally:
+        # Cleanup temp file
+        Path(tmp_path).unlink(missing_ok=True)
 
 @app.get("/api/v1/documents", response_model=List[Dict[str, Any]])
 async def list_documents(
+    collection_id: Optional[str] = None,
     current_user: User = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
     """List all user documents."""
-    pass
+    return document_service.list_documents(db, current_user.id, collection_id)
 
 @app.delete("/api/v1/documents/{doc_id}")
 async def delete_document(
@@ -190,7 +330,26 @@ async def delete_document(
     db: Session = Depends(get_db)
 ):
     """Delete document."""
-    pass
+    success = document_service.delete_document(db, current_user.id, doc_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"message": "Document deleted", "document_id": doc_id}
+
+@app.get("/api/v1/documents/stats", response_model=Dict[str, Any])
+async def get_document_stats(
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get storage statistics."""
+    return document_service.get_storage_stats(db, current_user.id)
+
+@app.get("/api/v1/documents/collections", response_model=List[Dict[str, Any]])
+async def list_collections(
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all collections/topics."""
+    return document_service.list_collections(db, current_user.id)
 
 # ==============================================================================
 # QUERY ENDPOINTS
@@ -230,17 +389,69 @@ async def query_stream(
     db: Session = Depends(get_db)
 ):
     """Stream LangGraph query response."""
-    # Server-Sent Events
-    pass
+    import json
+    from app.graphs.rag_graph import rag_graph
+    
+    thread_id = request.thread_id or str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    messages = request.conversation_history or []
+    messages.append({"role": "user", "content": request.question})
+    
+    inputs = {
+        "messages": messages,
+        "question": request.question,
+        "answer": "",
+        "router_decision": ""
+    }
+    
+    async def generate():
+        try:
+            for event in rag_graph.stream(inputs, config):
+                yield f"data: {json.dumps(event)}\n\n"
+            
+            final_state = rag_graph.get_state(config)
+            yield f"data: {json.dumps({'type': 'complete', 'state': final_state.values if final_state else {}})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+    
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
-@app.get("/api/v1/conversations/{conversation_id}")
+@app.get("/api/v1/conversations/{conversation_id}", response_model=Dict[str, Any])
 async def get_conversation(
     conversation_id: str,
     current_user: User = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get conversation history."""
-    pass
+    from app.models import Conversation, Message
+    
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.user_id == current_user.id
+    ).first()
+    
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    messages = db.query(Message).filter(
+        Message.conversation_id == conversation_id
+    ).order_by(Message.created_at.asc()).all()
+    
+    return {
+        "id": conversation.id,
+        "title": conversation.title,
+        "created_at": conversation.created_at.isoformat(),
+        "messages": [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "created_at": m.created_at.isoformat()
+            }
+            for m in messages
+        ]
+    }
 
 @app.delete("/api/v1/conversations/{conversation_id}")
 async def delete_conversation(
@@ -249,7 +460,20 @@ async def delete_conversation(
     db: Session = Depends(get_db)
 ):
     """Delete conversation."""
-    pass
+    from app.models import Conversation
+    
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.user_id == current_user.id
+    ).first()
+    
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    db.delete(conversation)
+    db.commit()
+    
+    return {"message": "Conversation deleted", "conversation_id": conversation_id}
 
 # ==============================================================================
 # HEALTH & INFO
@@ -301,6 +525,194 @@ async def power_automate_webhook(request: dict):
     # Execute LangGraph
     result = graph_service.execute_query(...)
     return {"answer": result["answer"], "status": "success"}
+
+
+# ==============================================================================
+# DOCUMENT MANAGEMENT ENDPOINTS
+# ==============================================================================
+
+@app.post("/api/v1/documents/upload", response_model=Dict[str, Any])
+async def upload_document(
+    file: UploadFile = File(...),
+    collection_id: str = Form("default"),
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Upload a document to the vector database."""
+    import tempfile
+    from pathlib import Path
+    
+    # Validate file type
+    allowed_types = ["pdf", "txt", "md", "docx"]
+    file_ext = file.filename.split(".")[-1].lower()
+    
+    if file_ext not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type not allowed. Allowed: {', '.join(allowed_types)}"
+        )
+    
+    # Save file temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}") as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+    
+    try:
+        result = document_service.upload_document(
+            db=db,
+            user_id=current_user.id,
+            file_path=tmp_path,
+            filename=file.filename,
+            collection_id=collection_id,
+            file_type=file_ext,
+            file_size=len(content)
+        )
+        return result
+    finally:
+        # Cleanup temp file
+        Path(tmp_path).unlink(missing_ok=True)
+
+@app.get("/api/v1/documents", response_model=List[Dict[str, Any]])
+async def list_documents(
+    collection_id: Optional[str] = None,
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all user documents."""
+    return document_service.list_documents(db, current_user.id, collection_id)
+
+@app.delete("/api/v1/documents/{doc_id}")
+async def delete_document(
+    doc_id: str,
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a document."""
+    success = document_service.delete_document(db, current_user.id, doc_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"message": "Document deleted", "document_id": doc_id}
+
+@app.get("/api/v1/documents/stats", response_model=Dict[str, Any])
+async def get_document_stats(
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get storage statistics."""
+    return document_service.get_storage_stats(db, current_user.id)
+
+@app.get("/api/v1/documents/collections", response_model=List[Dict[str, Any]])
+async def list_collections(
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all collections/topics."""
+    return document_service.list_collections(db, current_user.id)
+
+# ==============================================================================
+# MODEL MANAGEMENT ENDPOINTS
+# ==============================================================================
+
+@app.get("/api/v1/models", response_model=List[Dict[str, Any]])
+async def list_models():
+    """List all available LLM models."""
+    return [
+        {"provider": "ollama", "model": "llama3.1:8b", "type": "local", "free": True},
+        {"provider": "ollama", "model": "mistral:7b", "type": "local", "free": True},
+        {"provider": "groq", "model": "llama3-8b-8192", "type": "cloud", "free": True},
+        {"provider": "groq", "model": "mixtral-8x7b-32768", "type": "cloud", "free": True},
+        {"provider": "google", "model": "gemini-1.5-flash", "type": "cloud", "free": True},
+        {"provider": "openai", "model": "gpt-4o", "type": "cloud", "free": False},
+        {"provider": "openai", "model": "gpt-4o-mini", "type": "cloud", "free": False},
+        {"provider": "azure_openai", "model": "gpt-4o", "type": "cloud", "free": False},
+    ]
+
+@app.post("/api/v1/models/switch", response_model=Dict[str, Any])
+async def switch_model(
+    provider: str = Form(...),
+    model: str = Form(...),
+    api_key: Optional[str] = Form(None),
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Switch to a different LLM model (saved to database)."""
+    from app.models import UserPreference
+    from app.encryption import encryption_service
+    import json
+    
+    # Get or create user preference
+    pref = db.query(UserPreference).filter(
+        UserPreference.user_id == current_user.id
+    ).first()
+    
+    if not pref:
+        pref = UserPreference(user_id=current_user.id)
+        db.add(pref)
+    
+    # Update preferences
+    pref.preferred_llm_provider = provider
+    pref.preferred_llm_model = model
+    pref.updated_at = datetime.utcnow()
+    
+    # Save API key if provided (encrypt it)
+    if api_key:
+        custom_keys = pref.custom_api_keys or {}
+        custom_keys[provider] = encryption_service.encrypt(api_key)
+        pref.custom_api_keys = custom_keys
+    
+    db.commit()
+    db.refresh(pref)
+    
+    logger.info(f"User {current_user.email} switched to {provider}/{model}")
+    
+    return {
+        "message": f"Switched to {provider}/{model}",
+        "provider": provider,
+        "model": model,
+        "status": "success"
+    }
+
+@app.get("/api/v1/models/current", response_model=Dict[str, Any])
+async def get_current_model(
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get currently active model (from user preferences)."""
+    from app.models import UserPreference
+    
+    pref = db.query(UserPreference).filter(
+        UserPreference.user_id == current_user.id
+    ).first()
+    
+    if pref:
+        return {
+            "provider": pref.preferred_llm_provider,
+            "model": pref.preferred_llm_model,
+            "vector_db": pref.preferred_vector_db,
+            "has_api_keys": bool(pref.custom_api_keys)
+        }
+    else:
+        # Default fallback
+        return {
+            "provider": "ollama",
+            "model": settings.OLLAMA_MODEL,
+            "vector_db": "chroma",
+            "has_api_keys": False
+        }
+
+# ==============================================================================
+# VECTOR DB INFO ENDPOINT
+# ==============================================================================
+
+@app.get("/api/v1/vector-db/info", response_model=Dict[str, Any])
+async def get_vector_db_info():
+    """Get current vector database information."""
+    return {
+        "type": settings.DEFAULT_VECTOR_DB,
+        "persist_directory": settings.CHROMA_PERSIST_DIR,
+        "collection": settings.CHROMA_COLLECTION_NAME if hasattr(settings, 'CHROMA_COLLECTION_NAME') else "default"
+    }
 
 if __name__ == "__main__":
     import uvicorn

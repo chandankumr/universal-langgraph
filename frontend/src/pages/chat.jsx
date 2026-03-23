@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router'; // ✅ Use Next.js router
 import api from '../services/api';
 
@@ -7,14 +7,45 @@ export default function Chat() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const [currentModel, setCurrentModel] = useState(null);
 
   // Check auth on load
-  React.useEffect(() => {
+  useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) {
       router.push('/login');
     }
   }, [router]);
+
+  useEffect(() => {
+    loadCurrentModel();
+  }, []);
+
+  // Load messages from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(`chat-${router.query.thread || 'default'}`);
+    if (saved) {
+      setMessages(JSON.parse(saved));
+    }
+  }, [router]);
+
+  // Save messages when they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem(`chat-default`, JSON.stringify(messages));
+    }
+  }, [messages]);
+
+  const loadCurrentModel = async () => {
+    try {
+      const response = await api.get('/api/v1/models/current');
+      setCurrentModel(response.data);
+    } catch (error) {
+      console.error('Error loading model:', error);
+      // Set default if fails
+      setCurrentModel({ provider: 'ollama', model: 'llama3.1:8b' });
+    }
+  };
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -55,9 +86,19 @@ export default function Chat() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui' }}>
       {/* Header */}
-      <div style={{ padding: '15px', borderBottom: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* <div style={{ padding: '15px', borderBottom: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h3 style={{ margin: 0 }}>💬 Universal LangGraph</h3>
         <button onClick={handleLogout} style={{ padding: '8px 15px', cursor: 'pointer' }}>Logout</button>
+      </div> */}
+      <div style={{ padding: '15px', borderBottom: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h3 style={{ margin: 0 }}>💬 Universal LangGraph</h3>
+          <small style={{ color: '#888' }}>Model: {currentModel?.model || 'Loading...'}</small>
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <a href="/documents" style={{ padding: '8px 15px', backgroundColor: '#28a745', color: 'white', textDecoration: 'none', borderRadius: '5px' }}>📄 Documents</a>
+          <button onClick={handleLogout} style={{ padding: '8px 15px', cursor: 'pointer' }}>Logout</button>
+        </div>
       </div>
 
       {/* Messages */}
