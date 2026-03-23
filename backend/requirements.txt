@@ -70,8 +70,8 @@ langchain-google-genai
 langchain_ollama
 langchain-huggingface
 sentence-transformers
-
-
+langchain_chroma
+google-generativeai
 
 
 

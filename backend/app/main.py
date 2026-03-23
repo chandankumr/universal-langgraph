@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 import logging
 import json
+from datetime import datetime
 from fastapi.responses import StreamingResponse
 
 from app.config import settings
@@ -240,33 +241,87 @@ async def configure_vector_db(
         db.commit()
         return {"message": "Vector DB configuration saved", "status": "created"}
 
+# @app.get("/api/v1/vector-dbs/status", response_model=Dict[str, Any])
+# async def get_vector_db_status(
+#     current_user: User = Security(get_current_user),
+#     db: Session = Depends(get_db)
+# ):
+#     """Get vector DB connection status."""
+#     from app.models import VectorDBConfig
+    
+#     config = db.query(VectorDBConfig).filter(
+#         VectorDBConfig.user_id == current_user.id,
+#         VectorDBConfig.is_active == True
+#     ).first()
+    
+#     if config:
+#         return {
+#             "configured": True,
+#             "db_type": config.db_type,
+#             "collection": config.collection_name,
+#             "status": "active"
+#         }
+#     else:
+#         return {
+#             "configured": False,
+#             "db_type": settings.DEFAULT_VECTOR_DB,
+#             "collection": "default",
+#             "status": "using defaults"
+#         }
+
 @app.get("/api/v1/vector-dbs/status", response_model=Dict[str, Any])
 async def get_vector_db_status(
     current_user: User = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get vector DB connection status."""
-    from app.models import VectorDBConfig
+    """Get all vector DB connection statuses with actual counts."""
+    from app.models import UserPreference
+    from app.database import vector_db
     
-    config = db.query(VectorDBConfig).filter(
-        VectorDBConfig.user_id == current_user.id,
-        VectorDBConfig.is_active == True
+    pref = db.query(UserPreference).filter(
+        UserPreference.user_id == current_user.id
     ).first()
     
-    if config:
-        return {
-            "configured": True,
-            "db_type": config.db_type,
-            "collection": config.collection_name,
-            "status": "active"
-        }
-    else:
-        return {
-            "configured": False,
-            "db_type": settings.DEFAULT_VECTOR_DB,
-            "collection": "default",
-            "status": "using defaults"
-        }
+    current_db = pref.preferred_vector_db if pref else "chroma"
+    
+    # Get actual document count from ChromaDB
+    try:
+        vector_count = vector_db.get_collection_count(collection_id="default")
+    except:
+        vector_count = 0
+    
+    statuses = {}
+
+    # Check Chroma (Always available)
+    statuses["chroma"] = {
+        "configured": True,
+        "status": "connected",
+        "is_active": current_db == "chroma",
+        "document_count": vector_count
+    }
+
+    for db_type in ["pinecone", "qdrant", "weaviate", "milvus"]:
+        try:
+            status = vector_db.get_status(db_type)
+            statuses[db_type] = {
+                "configured": status.get("configured", False),
+                "status": status.get("status", "unknown"),
+                "is_active": db_type == current_db,
+                "document_count": vector_count if db_type == "chroma" else 0
+            }
+        except:
+            statuses[db_type] = {
+                "configured": False,
+                "status": "not_configured",
+                "is_active": db_type == current_db,
+                "document_count": 0
+            }
+    
+    return {
+        "current_db": current_db,
+        "total_vectors": vector_count,
+        "databases": statuses
+    }
 
 # ==============================================================================
 # DOCUMENT MANAGEMENT
@@ -636,7 +691,7 @@ async def switch_model(
     current_user: User = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Switch to a different LLM model (saved to database)."""
+    """Switch to a different LLM model (saved to user preferences)."""
     from app.models import UserPreference
     from app.encryption import encryption_service
     import json
@@ -670,7 +725,8 @@ async def switch_model(
         "message": f"Switched to {provider}/{model}",
         "provider": provider,
         "model": model,
-        "status": "success"
+        "status": "success",
+        "note": "Model will be used for next query"
     }
 
 @app.get("/api/v1/models/current", response_model=Dict[str, Any])
@@ -712,6 +768,80 @@ async def get_vector_db_info():
         "type": settings.DEFAULT_VECTOR_DB,
         "persist_directory": settings.CHROMA_PERSIST_DIR,
         "collection": settings.CHROMA_COLLECTION_NAME if hasattr(settings, 'CHROMA_COLLECTION_NAME') else "default"
+    }
+
+# ==============================================================================
+# ADMIN ENDPOINTS
+# ==============================================================================
+
+@app.get("/api/v1/admin/postgres/tables", response_model=List[Dict[str, Any]])
+async def list_postgres_tables(
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all PostgreSQL tables with row counts."""
+    from sqlalchemy import text
+    
+    tables_info = [
+        {"name": "users", "description": "User accounts and authentication"},
+        {"name": "api_keys", "description": "Encrypted API keys for LLM providers"},
+        {"name": "documents", "description": "Document metadata (not embeddings)"},
+        {"name": "conversations", "description": "Chat conversation history"},
+        {"name": "messages", "description": "Individual chat messages"},
+        {"name": "user_preferences", "description": "User LLM and vector DB preferences"},
+        {"name": "vector_db_configs", "description": "Vector database configurations"}
+    ]
+    
+    # Get actual row counts
+    for table in tables_info:
+        try:
+            result = db.execute(text(f"SELECT COUNT(*) FROM {table['name']}"))
+            table["row_count"] = result.scalar()
+        except:
+            table["row_count"] = 0
+    
+    return tables_info
+
+@app.get("/api/v1/admin/system/info", response_model=Dict[str, Any])
+async def get_system_info(
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get system information and health status."""
+    import psutil
+    from app.config import settings
+    
+    # Get memory usage
+    memory = psutil.virtual_memory()
+    
+    return {
+        "backend": {
+            "framework": "FastAPI",
+            "python_version": "3.11",
+            "langgraph_version": "0.0.40"
+        },
+        "frontend": {
+            "framework": "Next.js",
+            "version": "14.2.35"
+        },
+        "database": {
+            "type": "PostgreSQL",
+            "version": "15",
+            "url": settings.DATABASE_URL.split("@")[1].split("/")[0] if settings.DATABASE_URL else "N/A"
+        },
+        "vector_db": {
+            "current": settings.DEFAULT_VECTOR_DB,
+            "supported": settings.SUPPORTED_VECTOR_DBS
+        },
+        "embeddings": {
+            "model": "BAAI/bge-small-en-v1.5",
+            "device": "cpu"
+        },
+        "system": {
+            "memory_total_gb": round(memory.total / (1024**3), 2),
+            "memory_used_percent": memory.percent,
+            "cpu_count": psutil.cpu_count()
+        }
     }
 
 if __name__ == "__main__":
