@@ -350,7 +350,11 @@ def search_node(state: RAGState, config: RunnableConfig):
     # 1. Retrieve Documents
     try:
         # retrieved_docs = vector_db.search(query=question, k=15, collection_id="default")
-        retrieved_docs = vector_db.search_with_rerank(query=question, k=15, collection_id="default")
+        if len(question.split()) > 10: # Only rerank for long/complex questions
+            retrieved_docs = vector_db.search_with_rerank(query=question, k=5, collection_id="default")
+        else:
+            retrieved_docs = vector_db.search(query=question, k=15, collection_id="default") # Fast vector search only
+        
         logger.info(f"🔍 Search returned {len(retrieved_docs)} documents (after re-rank)")
     except Exception as e:
         logger.error(f"❌ Search error: {str(e)}")
