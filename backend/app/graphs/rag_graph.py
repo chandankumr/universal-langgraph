@@ -349,8 +349,9 @@ def search_node(state: RAGState, config: RunnableConfig):
     
     # 1. Retrieve Documents
     try:
-        retrieved_docs = vector_db.search(query=question, k=5, collection_id="default")
-        logger.info(f"🔍 Search returned {len(retrieved_docs)} documents")
+        # retrieved_docs = vector_db.search(query=question, k=15, collection_id="default")
+        retrieved_docs = vector_db.search_with_rerank(query=question, k=15, collection_id="default")
+        logger.info(f"🔍 Search returned {len(retrieved_docs)} documents (after re-rank)")
     except Exception as e:
         logger.error(f"❌ Search error: {str(e)}")
         retrieved_docs = []
@@ -374,16 +375,35 @@ def search_node(state: RAGState, config: RunnableConfig):
         llm = get_llm_dynamic(provider, model, api_key)
         
         # 3. Build Context
-        context = "\n\n".join([doc.page_content for doc in retrieved_docs[:3]])
+        # context = "\n\n".join([doc.page_content for doc in retrieved_docs[:3]])
+        # Build context from retrieved documents
+        # Add separators so the AI knows where one chunk ends and another begins
+        context_parts = []
+        for i, doc in enumerate(retrieved_docs[:15]): # Ensure we use the new limit
+            context_parts.append(f"[Source {i+1}]: {doc.page_content}")
         
-        prompt = f"""Answer the question based ONLY on the following context. If the answer is not in the context, say "I cannot find this information in the uploaded documents."
+        context = "\n\n".join(context_parts)
 
-Context:
-{context}
+#         prompt = f"""Answer the question based ONLY on the following context. If the answer is not in the context, say "I cannot find this information in the uploaded documents."
 
-Question: {question}
+# Context:
+# {context}
 
-Answer:"""
+# Question: {question}
+
+# Answer:"""
+
+        prompt = f"""You are an expert assistant. Answer the question based ONLY on the following context sources. 
+        The context may be split across multiple sources. You MUST synthesize information from ALL relevant sources to provide a complete answer.
+        If the answer requires combining facts from Source 1 and Source 5, do so.
+        If the answer is not in ANY of the sources, say "I cannot find this information in the uploaded documents."
+
+        Context Sources:
+        {context}
+
+        Question: {question}
+
+        Comprehensive Answer:"""
         
         response = llm.invoke(prompt)
         logger.info(f"✅ Generated answer using {provider}")

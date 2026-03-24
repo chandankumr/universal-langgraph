@@ -23,6 +23,7 @@ from app.schemas import (
 )
 from app.services.document_service import document_service
 # from app.graphs import auto_research_graph
+# from app.graphs.auto_research_graph import auto_research_graph
 
 # Setup
 app = FastAPI(
@@ -552,26 +553,41 @@ async def start_research(
     current_user: User = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Start an autonomous research agent."""
-    
-    # Run the AutoResearch Graph
-    initial_state = {
-        "goal": request.goal,
-        "plan": [],
-        "current_step": 0,
-        "gathered_info": [],
-        "draft_report": "",
-        "critique": "",
-        "iteration_count": 0,
-        "finished": False
+    """Auto-research agent - Coming Soon"""
+    return {
+        "status": "info",
+        "message": "Auto-research agent is under development. Please use standard query endpoint."
     }
+
+# @app.post("/api/v1/research/start")
+# async def start_research(
+#     request: ResearchRequest,
+#     current_user: User = Security(get_current_user),
+#     db: Session = Depends(get_db)
+# ):
+#     """Start an autonomous research agent with multi-hop search."""
     
-    # Stream the progress to the user
-    async def generate():
-        for event in auto_research_graph.stream(initial_state):
-            yield f" {json.dumps(event)}\n\n"
+#     # Run the AutoResearch Graph
+#     initial_state = {
+#         "goal": request.goal,
+#         "plan": [],
+#         "current_step": 0,
+#         "gathered_info": [],
+#         "draft_report": "",
+#         "critique": "",
+#         "iteration_count": 0,
+#         "finished": False
+#     }
     
-    return StreamingResponse(generate(), media_type="text/event-stream")
+#     # Stream the progress to the user
+#     async def generate():
+#         try:
+#             for event in auto_research_graph.stream(initial_state):
+#                 yield f"data: {json.dumps(event)}\n\n"
+#         except Exception as e:
+#             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+    
+#     return StreamingResponse(generate(), media_type="text/event-stream")
 
 @app.post("/webhooks/power-automate/query")
 async def power_automate_webhook(request: dict):

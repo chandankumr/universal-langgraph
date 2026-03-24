@@ -47,6 +47,58 @@ class VectorDatabaseManager:
         self.current_db_type = "chroma"  # Default
         self.clients = {}
         logger.info("✅ Vector Database Manager initialized")
+
+    def add_documents_parent_child(self, documents, collection_id="default"):
+        """Add documents with Parent-Child indexing for better context retrieval."""
+        from langchain.retrievers import ParentDocumentRetriever
+        from langchain.storage import InMemoryStore
+        from langchain.text_splitter import RecursiveCharacterTextSplitter
+        from langchain_chroma import Chroma
+        
+        try:
+            # Parent splitter (large chunks for context)
+            parent_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=2000,
+                chunk_overlap=200
+            )
+            
+            # Child splitter (small chunks for search)
+            child_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=400,
+                chunk_overlap=50
+            )
+            
+            # Create parent documents
+            parent_docs = parent_splitter.split_documents(documents)
+            
+            # Create store for parent documents
+            parent_store = InMemoryStore()
+            
+            # Get Chroma client
+            chroma_client = self.get_client("chroma", collection_id)
+            
+            # Create retriever
+            retriever = ParentDocumentRetriever(
+                vectorstore=chroma_client,
+                docstore=parent_store,
+                child_splitter=child_splitter,
+                parent_splitter=parent_splitter,
+            )
+            
+            # Add documents
+            retriever.add_documents(parent_docs)
+            
+            logger.info(f"✅ Added {len(parent_docs)} parent docs with Parent-Child indexing")
+            return [f"parent_{i}" for i in range(len(parent_docs))]
+            
+        except ImportError as ie:
+            logger.error(f"Import error for Parent-Child: {ie}. Falling back to standard add.")
+            # Fallback to regular add if imports fail
+            return self.add_documents(documents, collection_id)
+        except Exception as e:
+            logger.error(f"Error in Parent-Child indexing: {e}")
+            # Fallback to regular add
+            return self.add_documents(documents, collection_id)
     
     def get_client(self, db_type: str, collection_id: str = "default"):
         """Get or create vector DB client."""
@@ -132,6 +184,10 @@ class VectorDatabaseManager:
         """Add documents to vector store."""
         # Use current_db_type if not specified
         target_db = db_type or self.current_db_type
+
+        # Use Parent-Child for Chroma (best for context retrieval)
+        if target_db == "chroma":
+            return self.add_documents_parent_child(documents, collection_id)
         
         # Get the client for this DB type
         client = self.get_client(target_db, collection_id)
@@ -225,6 +281,52 @@ class VectorDatabaseManager:
             logger.info(f"🔄 Switched active DB to {db_type}")
             return True
         return False
+    
+    def search_with_rerank(self, query: str, k: int = 15, collection_id="default", db_type=None):
+        """Search with Hybrid Search + Re-Ranking for better precision."""
+        # ✅ CORRECT IMPORTS FOR LANGCHAIN 0.1+
+        from langchain_classic.retrievers import ContextualCompressionRetriever
+        # from langchain_community.document_compressors import CrossEncoderReranker
+        from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
+        from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+        
+        target_db = db_type or self.current_db_type
+        client = self.get_client(target_db, collection_id)
+
+        if not client:
+            return self.search(query, k, collection_id, db_type)
+        
+        try:
+            # Step 1: Get more candidates initially (cast wider net)
+            # We fetch 3x the desired amount to give the reranker enough options
+            initial_k = k * 3
+            base_retriever = client.as_retriever(search_kwargs={"k": min(initial_k, 50)})
+            
+            # Step 2: Initialize the Cross-Encoder Reranker
+            # This model is small, fast, and runs locally on CPU
+            # model = HuggingFaceCrossEncoder(model_name="BAAI/bge-reranker-base")
+            model_name = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            logger.info(f"Loading lightweight reranker: {model_name}...")
+            model = HuggingFaceCrossEncoder(model_name=model_name)
+            compressor = CrossEncoderReranker(model=model, top_n=k)
+            
+            # Step 3: Wrap the retriever with the compressor
+            compression_retriever = ContextualCompressionRetriever(
+                base_compressor=compressor,
+                base_retriever=base_retriever
+            )
+            
+            # Step 4: Execute search (this triggers the reranking internally)
+            # Note: In newer LangChain, we use invoke or get_relevant_documents
+            reranked_results = compression_retriever.invoke(query)
+            
+            logger.info(f"🔍 Hybrid Search: Retrieved {len(reranked_results)} docs (after re-rank)")
+            return reranked_results
+            
+        except Exception as e:
+            logger.error(f"Hybrid search error: {e}")
+            # Fallback to regular vector search if reranking fails
+            return self.search(query, k, collection_id, db_type)
 
 # Singleton instance
 vector_db = VectorDatabaseManager()

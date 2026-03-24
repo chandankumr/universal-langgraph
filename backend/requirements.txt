@@ -72,7 +72,7 @@ langchain-huggingface
 sentence-transformers
 langchain_chroma
 google-generativeai
-
+langchain-core
 
 
 

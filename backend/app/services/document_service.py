@@ -57,7 +57,7 @@ class DocumentService:
                 raise ValueError("No chunks created after splitting")
             
             # 4. CRITICAL: Add chunks to Vector DB (Chroma)
-            logger.info(f"Adding {len(chunks)} chunks to Vector DB (Collection: {collection_id})...")
+            logger.info(f"Adding {len(chunks)} chunks to Vector DB (Collection: {collection_id}) with Parent-Child indexing...")
             try:
                 doc_ids = vector_db.add_documents(
                     documents=chunks,
@@ -108,6 +108,11 @@ class DocumentService:
         try:
             if file_type == "pdf":
                 loader = PyPDFLoader(file_path)
+                documents = loader.load()
+                # Filter out blank or near-blank pages (less than 50 characters)
+                documents = [doc for doc in documents if len(doc.page_content.strip()) > 50]
+                logger.info(f"Filtered to {len(documents)} non-blank pages")
+                return documents
             elif file_type == "md":
                 loader = UnstructuredMarkdownLoader(file_path)
             elif file_type == "docx":
