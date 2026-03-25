@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 import logging
 import json
+import uuid
 from datetime import datetime
 from fastapi.responses import StreamingResponse
 
@@ -438,40 +439,40 @@ async def query(
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
-@app.post("/api/v1/query/stream")
-async def query_stream(
-    request: QueryRequest,
-    current_user: User = Security(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Stream LangGraph query response."""
-    import json
-    from app.graphs.rag_graph import rag_graph
+# @app.post("/api/v1/query/stream")
+# async def query_stream(
+#     request: QueryRequest,
+#     current_user: User = Security(get_current_user),
+#     db: Session = Depends(get_db)
+# ):
+#     """Stream LangGraph query response."""
+#     import json
+#     from app.graphs.rag_graph import rag_graph
     
-    thread_id = request.thread_id or str(uuid.uuid4())
-    config = {"configurable": {"thread_id": thread_id}}
+#     thread_id = request.thread_id or str(uuid.uuid4())
+#     config = {"configurable": {"thread_id": thread_id}}
     
-    messages = request.conversation_history or []
-    messages.append({"role": "user", "content": request.question})
+#     messages = request.conversation_history or []
+#     messages.append({"role": "user", "content": request.question})
     
-    inputs = {
-        "messages": messages,
-        "question": request.question,
-        "answer": "",
-        "router_decision": ""
-    }
+#     inputs = {
+#         "messages": messages,
+#         "question": request.question,
+#         "answer": "",
+#         "router_decision": ""
+#     }
     
-    async def generate():
-        try:
-            for event in rag_graph.stream(inputs, config):
-                yield f"data: {json.dumps(event)}\n\n"
+#     async def generate():
+#         try:
+#             for event in rag_graph.stream(inputs, config):
+#                 yield f"data: {json.dumps(event)}\n\n"
             
-            final_state = rag_graph.get_state(config)
-            yield f"data: {json.dumps({'type': 'complete', 'state': final_state.values if final_state else {}})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+#             final_state = rag_graph.get_state(config)
+#             yield f"data: {json.dumps({'type': 'complete', 'state': final_state.values if final_state else {}})}\n\n"
+#         except Exception as e:
+#             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
     
-    return StreamingResponse(generate(), media_type="text/event-stream")
+#     return StreamingResponse(generate(), media_type="text/event-stream")
 
 @app.get("/api/v1/conversations/{conversation_id}", response_model=Dict[str, Any])
 async def get_conversation(
@@ -859,6 +860,79 @@ async def get_system_info(
             "cpu_count": psutil.cpu_count()
         }
     }
+
+@app.post("/api/v1/query/stream")
+async def query_stream(
+    request: QueryRequest,
+    current_user: User = Security(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Stream LangGraph query response using SSE."""
+    import json
+    from app.models import UserPreference
+    from app.encryption import encryption_service
+    from app.graphs.rag_graph import rag_graph
+    from app.config import settings
+
+    async def event_generator():
+        try:
+            # 1. Get User Preferences
+            pref = db.query(UserPreference).filter(
+                UserPreference.user_id == current_user.id
+            ).first()
+            
+            provider = pref.preferred_llm_provider if pref else "groq"
+            model = pref.preferred_llm_model if pref else "llama-3.1-8b-instant"
+            
+            # 2. ✅ DECRYPT API KEY (This was missing!)
+            api_key = None
+            if pref and pref.custom_api_keys and provider in pref.custom_api_keys:
+                try:
+                    api_key = encryption_service.decrypt(pref.custom_api_keys[provider])
+                    logger.info(f"🔑 [STREAM] Decrypted API key for {provider}")
+                except Exception as e:
+                    logger.error(f"[STREAM] Failed to decrypt key: {e}")
+            
+            # Fallback to env
+            if not api_key:
+                if provider == "groq" and settings.GROQ_API_KEY:
+                    api_key = settings.GROQ_API_KEY
+                    logger.info("🔑 [STREAM] Using Groq Key from .env")
+                elif provider == "openai" and settings.OPENAI_API_KEY:
+                    api_key = settings.OPENAI_API_KEY
+            
+            if not api_key:
+                yield f"data: {json.dumps({'error': f'{provider} API Key missing'})}\n\n"
+                return
+
+            # 3. Prepare Inputs
+            inputs = {
+                "messages": [{"role": "user", "content": request.question}], 
+                "question": request.question
+            }
+            
+            config = {
+                "configurable": {
+                    "thread_id": str(uuid.uuid4()), 
+                    "llm_provider": provider, 
+                    "llm_model": model,
+                    "llm_api_key": api_key  # Pass the decrypted key!
+                }
+            }
+            
+            # 4. Stream Events
+            async for event in rag_graph.astream_events(inputs, config, version="v2"):
+                kind = event["event"]
+                if kind == "on_chat_model_stream":
+                    content = event["data"]["chunk"].content
+                    if content:
+                        yield f"data: {json.dumps({'token': content})}\n\n"
+                        
+        except Exception as e:
+            logger.error(f"Stream error: {str(e)}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 if __name__ == "__main__":
     import uvicorn

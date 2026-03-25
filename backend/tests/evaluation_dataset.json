@@ -1,0 +1,32 @@
+[
+  {
+    "question": "What is Java?",
+    "answer": "Java is a high-level, object-oriented programming language developed by Sun Microsystems.",
+    "contexts": ["Java is a high-level, object-oriented programming language.", "It was created by James Gosling and his team in the mid-1990s."],
+    "reference": "Java is a high-level, object-oriented programming language developed by Sun Microsystems (now owned by Oracle Corporation). It was created by James Gosling and his team in the mid-1990s."
+  },
+  {
+    "question": "What is a for loop in Java?",
+    "answer": "A for loop combines initialization, continuation condition, and update in one line.",
+    "contexts": ["The for loop has initialization, continuation-condition, and update combined in the first line."],
+    "reference": "The for loop makes a common type of while loop easier to write. It has the general form: for (initialization; continuation-condition; update) { statements }. The initialization, continuation condition, and updating have all been combined in the first line."
+  },
+  {
+    "question": "What is the difference between while and for loops?",
+    "answer": "A for loop combines initialization, condition, and update in one line, while a while loop only has a condition check.",
+    "contexts": ["The for loop keeps everything involved in the control in one place.", "A while loop checks only the continuation condition."],
+    "reference": "The for loop keeps everything involved in the 'control' of the loop in one place, which makes the code easier to read. A while loop generally only checks a continuation condition and requires manual initialization and updates elsewhere."
+  },
+  {
+    "question": "What is JVM?",
+    "answer": "JVM (Java Virtual Machine) allows Java programs to run on any device without recompilation.",
+    "contexts": ["Java programs can run on any device that has a Java Virtual Machine (JVM) installed."],
+    "reference": "Java is designed to be platform-independent, meaning that programs written in Java can run on any device that has a Java Virtual Machine (JVM) installed, without the need for recompilation."
+  },
+  {
+    "question": "What is object-oriented programming in Java?",
+    "answer": "Object-oriented programming organizes code into objects containing data and functions.",
+    "contexts": ["Java is an object-oriented programming language.", "Objects contain data and functions that operate on that data."],
+    "reference": "Java is an object-oriented programming language. What is an object? In Java, objects are entities that contain data (fields) and functions (methods) that operate on that data. It supports principles like encapsulation, inheritance, and polymorphism."
+  }
+]

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router'; // ✅ Use Next.js router
 import api from '../services/api';
 
@@ -8,6 +8,8 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const [currentModel, setCurrentModel] = useState(null);
+
+  const messagesEndRef = useRef(null);
 
   // Check auth on load
   useEffect(() => {
@@ -21,6 +23,10 @@ export default function Chat() {
     loadCurrentModel();
   }, []);
 
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   // Load messages from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem(`chat-${router.query.thread || 'default'}`);
@@ -31,10 +37,11 @@ export default function Chat() {
 
   // Save messages when they change
   useEffect(() => {
+    scrollToBottom();
     if (messages.length > 0) {
       localStorage.setItem(`chat-default`, JSON.stringify(messages));
     }
-  }, [messages]);
+  }, [messages]); // Runs every time a token is added
 
   const loadCurrentModel = async () => {
     try {
@@ -47,32 +54,128 @@ export default function Chat() {
     }
   };
 
+  // const sendMessage = async () => {
+  //   if (!input.trim()) return;
+
+  //   const userMessage = { role: 'user', content: input };
+  //   setMessages([...messages, userMessage]);
+  //   setInput('');
+  //   setLoading(true);
+
+  //   try {
+  //     const response = await api.post('/api/v1/query', {
+  //       question: input,
+  //       conversation_history: messages
+  //     });
+
+  //     const assistantMessage = { 
+  //       role: 'assistant', 
+  //       content: response.data.answer 
+  //     };
+  //     setMessages(prev => [...prev, assistantMessage]);
+  //   } catch (error) {
+  //     console.error('Error:', error);
+  //     const errorMessage = { 
+  //       role: 'assistant', 
+  //       content: 'Sorry, I encountered an error. Please try again.' 
+  //     };
+  //     setMessages(prev => [...prev, errorMessage]);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
   const sendMessage = async () => {
     if (!input.trim()) return;
 
+    // 1. Add User Message immediately
     const userMessage = { role: 'user', content: input };
-    setMessages([...messages, userMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setInput('');
     setLoading(true);
 
+    // 2. Prepare empty Assistant Message
+    let assistantContent = '';
+    
+    // Add a placeholder assistant message to the UI so we have something to update
+    setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+
     try {
-      const response = await api.post('/api/v1/query', {
-        question: input,
-        conversation_history: messages
+      const response = await fetch('http://localhost:8000/api/v1/query/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ question: input })
       });
 
-      const assistantMessage = { 
-        role: 'assistant', 
-        content: response.data.answer 
-      };
-      setMessages(prev => [...prev, assistantMessage]);
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          
+          // Check for "data:" prefix instead of space
+          if (trimmedLine.startsWith('data:')) {
+            try {
+              // Remove "data:" prefix and parse JSON
+              const jsonStr = trimmedLine.replace('data:', '').trim();
+              if (!jsonStr) continue;
+
+              const data = JSON.parse(jsonStr);
+
+              if (data.token) {
+                assistantContent += data.token;
+                
+                // Update the last message (the assistant's placeholder)
+                setMessages(prev => {
+                  const newMessages = [...prev];
+                  // Update the very last message with new content
+                  newMessages[newMessages.length - 1] = { 
+                    role: 'assistant', 
+                    content: assistantContent 
+                  };
+                  return newMessages;
+                });
+              } else if (data.error) {
+                console.error('Stream Error:', data.error);
+                setMessages(prev => {
+                  const newMessages = [...prev];
+                  newMessages[newMessages.length - 1] = { 
+                    role: 'assistant', 
+                    content: `Error: ${data.error}` 
+                  };
+                  return newMessages;
+                });
+              }
+            } catch (e) {
+              console.warn('Failed to parse JSON chunk:', e);
+            }
+          }
+        }
+      }
     } catch (error) {
-      console.error('Error:', error);
-      const errorMessage = { 
-        role: 'assistant', 
-        content: 'Sorry, I encountered an error. Please try again.' 
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      console.error('Streaming failed:', error);
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = { 
+          role: 'assistant', 
+          content: `Sorry, streaming failed: ${error.message}` 
+        };
+        return newMessages;
+      });
     } finally {
       setLoading(false);
     }
@@ -121,13 +224,16 @@ export default function Chat() {
                 maxWidth: '70%',
                 alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
                 marginLeft: msg.role === 'user' ? 'auto' : '0',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                wordWrap: 'break-word'
               }}
             >
               {msg.content}
             </div>
           ))
         )}
+        {/* Add this invisible div at the very end */}
+        <div ref={messagesEndRef} /> 
         {loading && <div style={{ padding: '15px', color: '#888', fontStyle: 'italic' }}>Thinking...</div>}
       </div>
 

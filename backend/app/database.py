@@ -328,6 +328,23 @@ class VectorDatabaseManager:
             # Fallback to regular vector search if reranking fails
             return self.search(query, k, collection_id, db_type)
 
+    def get_azure_client(self, collection_id: str = "default"):
+        """Get Azure AI Search client."""
+        from langchain_community.vectorstores import AzureSearch
+        from app.config import settings
+        
+        try:
+            vector_store = AzureSearch(
+                azure_search_endpoint=settings.AZURE_SEARCH_ENDPOINT,
+                azure_search_key=settings.AZURE_SEARCH_KEY,
+                index_name=settings.AZURE_SEARCH_INDEX_NAME,
+                embedding_function=self.embeddings,
+            )
+            return vector_store
+        except Exception as e:
+            logger.error(f"Azure Search connection failed: {e}")
+            return None
+
 # Singleton instance
 vector_db = VectorDatabaseManager()
 
