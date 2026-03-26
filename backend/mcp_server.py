@@ -32,7 +32,7 @@ os.environ["DATABASE_URL"] = "postgresql://postgres:postgres@localhost:5432/lang
 os.environ["CHROMA_PERSIST_DIR"] = "/Users/chandankumar/Documents/universal-langgraph/universal-langgraph/backend/data/chroma_db"
 # ✅ Force working directory to backend dir so relative paths resolve correctly
 os.chdir("/Users/chandankumar/Documents/universal-langgraph/universal-langgraph/backend")
-os.environ["GROQ_API_KEY"] = "gsk_S0XY4WIGBDM8cMg94yXFWGdyb3FYbVBDiyjEeZsexEmw"  # key
+os.environ["GROQ_API_KEY"] = ""  # key
 # os.environ["OLLAMA_MODEL"] = "llama3.1:8b"
 # os.environ["OLLAMA_BASE_URL"] = "http://localhost:11434"
 os.environ["EMBEDDING_MODEL"] = "BAAI/bge-small-en-v1.5"
