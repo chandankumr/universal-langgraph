@@ -108,14 +108,39 @@ class VectorDatabaseManager:
             return self.clients[cache_key]
         
         try:
+            # if db_type == "chroma":
+            #     from langchain_chroma import Chroma
+            #     client = Chroma(
+            #         persist_directory=settings.CHROMA_PERSIST_DIR,
+            #         embedding_function=self.embeddings,
+            #         collection_name=collection_id
+            #     )
+            
             if db_type == "chroma":
                 from langchain_chroma import Chroma
-                client = Chroma(
-                    persist_directory=settings.CHROMA_PERSIST_DIR,
-                    embedding_function=self.embeddings,
-                    collection_name=collection_id
+                import chromadb
+                
+                # ✅ FIX FOR CHROMADB 1.5+
+                # 1. Create the PersistentClient explicitly
+                # persist_dir = settings.CHROMA_PERSIST_DIR
+                persist_dir = settings.CHROMA_PERSIST_DIR or os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "chroma_db"
                 )
-            
+
+                # ✅ Use HttpClient-style init compatible with chromadb 1.5.x
+                chroma_client = chromadb.PersistentClient(path=persist_dir)
+
+                # ✅ Get or create the collection first explicitly
+                collection = chroma_client.get_or_create_collection(name=collection_id)
+
+                # ✅ Pass collection directly — avoids internal Settings lookup
+                client = Chroma(
+                    client=chroma_client,
+                    collection_name=collection_id,
+                    embedding_function=self.embeddings,
+                    collection_metadata={"hnsw:space": "cosine"}
+                )
+
             elif db_type == "pinecone":
                 from langchain_pinecone import PineconeVectorStore
                 from pinecone import Pinecone

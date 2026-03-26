@@ -27,11 +27,15 @@ from dotenv import load_dotenv
 backend_dir = os.path.dirname(os.path.abspath(__file__))
 
 # ✅ CRITICAL: Hardcode your exact database URL (from your working test)
-os.environ["DATABASE_URL"] = "postgresql://postgres:postgres@localhost:5432/langgraph-postgres"
+# os.environ["DATABASE_URL"] = "postgresql://postgres:postgres@localhost:5432/langgraph_platform"
+os.environ["DATABASE_URL"] = "postgresql://postgres:postgres@localhost:5432/langgraph_platform"
 os.environ["CHROMA_PERSIST_DIR"] = "/Users/chandankumar/Documents/universal-langgraph/universal-langgraph/backend/data/chroma_db"
-os.environ["GROQ_API_KEY"] = ""  # key
-os.environ["OLLAMA_MODEL"] = "llama3.1:8b"
-os.environ["OLLAMA_BASE_URL"] = "http://localhost:11434"
+# ✅ Force working directory to backend dir so relative paths resolve correctly
+os.chdir("/Users/chandankumar/Documents/universal-langgraph/universal-langgraph/backend")
+os.environ["GROQ_API_KEY"] = "gsk_S0XY4WIGBDM8cMg94yXFWGdyb3FYbVBDiyjEeZsexEmw"  # key
+# os.environ["OLLAMA_MODEL"] = "llama3.1:8b"
+# os.environ["OLLAMA_BASE_URL"] = "http://localhost:11434"
+os.environ["EMBEDDING_MODEL"] = "BAAI/bge-small-en-v1.5"
 
 # Now load .env as backup
 load_dotenv(os.path.join(backend_dir, '.env'))
@@ -42,8 +46,21 @@ def log_debug(message):
 def log_error(message):
     print(f"❌ {message}", file=sys.stderr, flush=True)
 
-log_debug(f"DATABASE_URL: {os.getenv('DATABASE_URL')}")
-log_debug(f"CHROMA_PERSIST_DIR: {os.getenv('CHROMA_PERSIST_DIR')}")
+log_debug(f"ENV SET: DATABASE_URL={os.getenv('DATABASE_URL')[:30]}...")
+log_debug(f"ENV SET: CHROMA_PERSIST_DIR={os.getenv('CHROMA_PERSIST_DIR')}")
+log_debug(f"ENV SET: EMBEDDING_MODEL={os.getenv('EMBEDDING_MODEL')}")
+
+# Verify the Chroma directory actually exists on disk
+chroma_path = os.getenv("CHROMA_PERSIST_DIR")
+if not os.path.exists(chroma_path):
+    log_error(f"CRITICAL: Chroma directory does not exist at {chroma_path}!")
+    # Fallback: Try to find it relative to backend dir
+    fallback_path = os.path.join(backend_dir, "data", "chroma_db")
+    if os.path.exists(fallback_path):
+        log_debug(f"Found fallback path: {fallback_path}")
+        os.environ["CHROMA_PERSIST_DIR"] = fallback_path
+    else:
+        log_error(f"Fallback path also missing: {fallback_path}")
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -56,7 +73,7 @@ import logging
 logging.getLogger('sqlalchemy').setLevel(logging.ERROR)
 logging.getLogger('sqlalchemy.engine').setLevel(logging.ERROR)
 
-from app.database import SessionLocal
+from app.database import SessionLocal, vector_db
 from app.graphs.rag_graph import rag_graph
 
 app = Server("langgraph-rag-server")
@@ -69,6 +86,7 @@ async def list_tools():
     return [
         Tool(
             name="query_knowledge_base",
+            # description="Search the internal knowledge base (technical documentation, manuals, PDFs) and get answers with citations.",
             description="Search the internal knowledge base (technical documentation, manuals, PDFs) and get answers with citations.",
             inputSchema={
                 "type": "object",
@@ -105,6 +123,8 @@ async def call_tool(name: str, arguments: dict):
             
         elif name == "query_knowledge_base":
             query = arguments.get("query", "")
+            # ✅ DEBUG: Log Chroma path
+            log_debug(f"CHROMA_PERSIST_DIR: {os.getenv('CHROMA_PERSIST_DIR')}")
             if not query:
                 return [TextContent(type="text", text="Error: No query provided")]
             
@@ -116,6 +136,15 @@ async def call_tool(name: str, arguments: dict):
             if doc_count == 0:
                 return [TextContent(type="text", text="Knowledge base is empty. Upload documents at http://localhost:3000/documents")]
 
+            # ✅ Test Chroma connection explicitly
+            from app.database import vector_db
+            try:
+                test_search = vector_db.search(query="test", k=1, collection_id="default")
+                log_debug(f"ChromaDB: Connection OK, test returned {len(test_search)} results")
+            except Exception as chroma_err:
+                log_error(f"ChromaDB Error: {chroma_err}")
+                return [TextContent(type="text", text=f"Vector DB connection error. Check CHROMA_PERSIST_DIR. Error: {str(chroma_err)}")]
+            
             inputs = {
                 "messages": [{"role": "user", "content": query}],
                 "question": query,
@@ -128,6 +157,10 @@ async def call_tool(name: str, arguments: dict):
             result = rag_graph.invoke(inputs, config)
             answer = result.get("answer", "No answer found")
             docs_count = len(result.get("documents", []))
+            
+            if docs_count == 0:
+                log_debug("Search returned 0 documents - query may not match indexed content")
+                return [TextContent(type="text", text=f"I found the document but couldn't retrieve relevant chunks for '{query}'. Try a more specific question about Java programming concepts.")]
             
             return [TextContent(type="text", text=f"Answer: {answer}\n\n(Sources: {docs_count} chunks)")]
             

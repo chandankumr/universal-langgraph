@@ -783,7 +783,8 @@ async def get_vector_db_info():
     """Get current vector database information."""
     return {
         "type": settings.DEFAULT_VECTOR_DB,
-        "persist_directory": settings.CHROMA_PERSIST_DIR,
+        # "persist_directory": settings.CHROMA_PERSIST_DIR,
+        # "client": chromadb.PersistentClient(path=settings.CHROMA_PERSIST_DIR),
         "collection": settings.CHROMA_COLLECTION_NAME if hasattr(settings, 'CHROMA_COLLECTION_NAME') else "default"
     }
 
