@@ -73,6 +73,17 @@ def get_llm(provider: str = "ollama", model: str = None, api_key: str = None):
             )
             logger.info("✅ Azure OpenAI LLM initialized")
             return llm
+        elif provider == "groq":
+            from langchain_groq import ChatGroq
+            if not api_key:
+                raise ValueError("Groq API Key missing")
+            llm = ChatGroq(
+                model=model or "llama3-8b-8192",
+                groq_api_key=api_key,
+                temperature=0
+            )
+            logger.info(f"✅ Initialized Groq: {model}")
+            return llm
         
         else:
             # Default to Ollama
@@ -236,6 +247,7 @@ def get_llm_dynamic(provider: str, model: str, api_key: str = None):
         raise e
 
 llm = get_llm()
+# llm = get_llm(provider="groq", model="llama3-8b-8192", api_key=settings.GROQ_API_KEY)
 
 # ==============================================================================
 # NODES

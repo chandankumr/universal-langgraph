@@ -62,11 +62,20 @@ class VectorService:
         
         collection = collection_name or "default"
         
-        return Chroma(
-            persist_directory=persist_dir,
-            embedding_function=embeddings,
-            collection_name=collection
+        # return Chroma(
+        #     persist_directory=persist_dir,
+        #     embedding_function=embeddings,
+        #     collection_name=collection
+        # )
+
+        import chromadb
+        chroma_client = chromadb.PersistentClient(path=persist_dir)
+        client = Chroma(
+            client=chroma_client,
+            embedding_function=self.embeddings,
+            collection_name=collection_id
         )
+        return client
     
     def _create_pinecone(self, config: dict, embeddings: Embeddings, collection_name: str = None):
         """Create Pinecone vector store."""
