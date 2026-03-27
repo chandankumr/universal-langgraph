@@ -75,6 +75,7 @@ google-generativeai
 langchain-core
 ragas 
 datasets
+faiss-cpu
 
 
 
