@@ -64,6 +64,9 @@ class DocumentService:
                     collection_id=collection_id
                 )
                 logger.info(f"✅ SUCCESS: Added {len(doc_ids)} chunks to Vector DB")
+
+                # Invalidate BM25 cache so it rebuilds on next query
+                vector_db.invalidate_bm25_cache()
             except Exception as ve:
                 logger.error(f"❌ Vector DB Error: {str(ve)}")
                 raise ve
@@ -158,6 +161,8 @@ class DocumentService:
         # Delete from Vector DB
         try:
             vector_db.delete_documents([doc.id], collection_id=doc.collection_id)
+            # Invalidate BM25 cache
+            vector_db.invalidate_bm25_cache() 
         except Exception as e:
             logger.error(f"Vector DB delete error: {e}")
         

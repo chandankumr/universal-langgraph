@@ -358,14 +358,28 @@ def search_node(state: RAGState, config: RunnableConfig):
     Reads provider/model from config (passed by graph_service).
     """
     question = state["question"]
+    search_method = config.get("configurable", {}).get("search_method", "vector")
     
+    from app.database import vector_db
+    retrieved_docs = []
     # 1. Retrieve Documents
     try:
-        # retrieved_docs = vector_db.search(query=question, k=15, collection_id="default")
-        if len(question.split()) > 10: # Only rerank for long/complex questions
-            retrieved_docs = vector_db.search_with_rerank(query=question, k=5, collection_id="default")
+        if search_method == "vectorless":
+            # Get all documents for BM25 (you'll need to implement this) without cache
+            # all_docs = vector_db.get_all_documents()  # You need to add this method
+            # raw_results = vectorless_search(question, all_docs, k=15)
+            # retrieved_docs = [item[0] for item in raw_results if item[0]] 
+            # logger.info(f"🔍 Vectorless Search returned {len(retrieved_docs)} documents")
+            # ✅ Use CACHED BM25 search
+            raw_results = vector_db.bm25_search(question, k=15)
+            retrieved_docs = [item[0] for item in raw_results if item[0]]
+            logger.info(f"🔍 Vectorless (Cached BM25) returned {len(retrieved_docs)} documents")
         else:
-            retrieved_docs = vector_db.search(query=question, k=15, collection_id="default") # Fast vector search only
+            # retrieved_docs = vector_db.search(query=question, k=15, collection_id="default")
+            if len(question.split()) > 10: # Only rerank for long/complex questions
+                retrieved_docs = vector_db.search_with_rerank(query=question, k=5, collection_id="default")
+            else:
+                retrieved_docs = vector_db.search(query=question, k=15, collection_id="default") # Fast vector search only
         
         logger.info(f"🔍 Search returned {len(retrieved_docs)} documents (after re-rank)")
     except Exception as e:
@@ -395,8 +409,22 @@ def search_node(state: RAGState, config: RunnableConfig):
         # Build context from retrieved documents
         # Add separators so the AI knows where one chunk ends and another begins
         context_parts = []
-        for i, doc in enumerate(retrieved_docs[:15]): # Ensure we use the new limit
-            context_parts.append(f"[Source {i+1}]: {doc.page_content}")
+        for i, doc in enumerate(retrieved_docs[:8]): # Ensure we use the new limit
+            # Handle tuple (doc, score) from vectorless
+            if isinstance(doc, tuple):
+                doc_obj = doc[0]
+            else:
+                doc_obj = doc
+            
+            # Extract text safely whether it's a string or Document object
+            if isinstance(doc_obj, str):
+                content = doc_obj
+            elif hasattr(doc_obj, 'page_content'):
+                content = doc_obj.page_content
+            else:
+                content = str(doc_obj)
+            # context_parts.append(f"[Source {i+1}]: {doc.page_content}")
+            context_parts.append(f"[Source {i+1}]: {content}")
         
         context = "\n\n".join(context_parts)
 
@@ -427,7 +455,9 @@ def search_node(state: RAGState, config: RunnableConfig):
         return {
             "answer": response.content,
             "documents": retrieved_docs,
-            "messages": [response]
+            "question": question,
+            "messages": [response],
+            "context": context
         }
         
     except Exception as e:
@@ -490,6 +520,60 @@ def build_rag_graph():
     
     logger.info("✅ LangGraph workflow compiled successfully")
     return app
+
+def vectorless_search(query: str, documents: list, k: int = 5):
+    """BM25 keyword-based retrieval without embeddings."""
+    from rank_bm25 import BM25Okapi
+    # import numpy as np
+    
+    if not documents:
+        return []
+    
+    # Extract text from documents (handle both strings and Document objects)
+    doc_texts = []
+    doc_objects = []
+    for doc in documents:
+        if isinstance(doc, str):
+            # It's a raw string from ChromaDB
+            doc_texts.append(doc.lower())
+            doc_objects.append(doc) 
+        elif hasattr(doc, 'page_content'):
+            # It's a LangChain Document object
+            doc_texts.append(doc.page_content.lower())
+            doc_objects.append(doc)
+        else:
+            # Fallback
+            doc_str = str(doc)
+            doc_texts.append(doc_str.lower())
+            doc_objects.append(doc)
+    
+    # Tokenize documents
+    tokenized_docs = [doc.lower().split() for doc in doc_texts]
+    bm25 = BM25Okapi(tokenized_docs)
+    
+    # Search
+    scores = bm25.get_scores(query.lower().split())
+    top_indices = scores.argsort()[-k:][::-1]
+    
+    results = []
+    for i in top_indices:
+        # Convert numpy.float64 to standard python float
+        safe_score = float(scores[i]) 
+        
+        # Only include if score > 0 (optional, but cleaner)
+        if safe_score > 0:
+            results.append((documents[i], safe_score))
+            
+    return results
+
+def hybrid_search(query: str, documents: list, k: int = 5, method: str = "vector"):
+    """Support both vector and vectorless search."""
+    
+    if method == "vectorless":
+        return vectorless_search(query, documents, k)
+    else:
+        # Your existing vector search
+        return vector_db.search(query, k=k)
 
 # Singleton graph instance
 try:

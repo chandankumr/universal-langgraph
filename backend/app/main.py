@@ -425,12 +425,16 @@ async def list_collections(
 async def query(
     request: QueryRequest,
     current_user: User = Security(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    search_method: str = "vector"
 ):
     """Execute LangGraph query."""
     try:
-        logger.info(f"Processing query for user: {current_user.email}")
-        result = graph_service.execute_query(db, current_user.id, request.dict())
+        logger.info(f"Processing query for user: {current_user.email} | Method: {search_method}")
+        request_dict = request.dict()
+        request_dict["search_method"] = search_method
+        result = graph_service.execute_query(db, current_user.id, request_dict)
+        result["search_method"] = search_method
         logger.info(f"Query completed: {result.get('status')}")
         return result
     except Exception as e:
@@ -866,7 +870,8 @@ async def get_system_info(
 async def query_stream(
     request: QueryRequest,
     current_user: User = Security(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    search_method: str = "vector"
 ):
     """Stream LangGraph query response using SSE."""
     import json
@@ -909,7 +914,8 @@ async def query_stream(
             # 3. Prepare Inputs
             inputs = {
                 "messages": [{"role": "user", "content": request.question}], 
-                "question": request.question
+                "question": request.question,
+                "search_method": search_method
             }
             
             config = {
@@ -917,10 +923,13 @@ async def query_stream(
                     "thread_id": str(uuid.uuid4()), 
                     "llm_provider": provider, 
                     "llm_model": model,
-                    "llm_api_key": api_key  # Pass the decrypted key!
+                    "llm_api_key": api_key,  # Pass the decrypted key!,
+                    "search_method": search_method
                 }
             }
             
+            logger.info(f" Starting Stream | Method: {search_method} | Provider: {provider}")
+
             # 4. Stream Events
             async for event in rag_graph.astream_events(inputs, config, version="v2"):
                 kind = event["event"]

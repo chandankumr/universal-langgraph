@@ -101,3 +101,13 @@ class UserPreference(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     user = relationship("User", backref="preferences")
+
+class ParentDocument(Base):
+    __tablename__ = "parent_documents"
+    
+    id = Column(String, primary_key=True, index=True)
+    collection_id = Column(String, index=True)
+    content = Column(Text)
+    doc_metadata = Column(JSON, nullable=True) 
+    
+    created_at = Column(DateTime, default=datetime.utcnow)

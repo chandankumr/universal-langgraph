@@ -8,6 +8,7 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const [currentModel, setCurrentModel] = useState(null);
+  const [searchMethod, setSearchMethod] = useState('vector'); // 'vector' or 'vectorless'
 
   const messagesEndRef = useRef(null);
 
@@ -101,7 +102,7 @@ export default function Chat() {
     setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
     try {
-      const response = await fetch('http://localhost:8000/api/v1/query/stream', {
+      const response = await fetch(`http://localhost:8000/api/v1/query/stream?search_method=${searchMethod}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -198,7 +199,29 @@ export default function Chat() {
           <h3 style={{ margin: 0 }}>💬 Universal LangGraph</h3>
           <small style={{ color: '#888' }}>Model: {currentModel?.model || 'Loading...'}</small>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '10px', fontSize: '14px' }}>
+            <span style={{ color: searchMethod === 'vector' ? '#007bff' : '#888', fontWeight: searchMethod === 'vector' ? 'bold' : 'normal' }}>Vector</span>
+            <label style={{ position: 'relative', display: 'inline-block', width: '50px', height: '24px' }}>
+              <input 
+                type="checkbox" 
+                checked={searchMethod === 'vectorless'} 
+                onChange={(e) => setSearchMethod(e.target.checked ? 'vectorless' : 'vector')}
+                style={{ opacity: 0, width: 0, height: 0 }} 
+              />
+              <span style={{
+                position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                backgroundColor: searchMethod === 'vectorless' ? '#28a745' : '#ccc',
+                transition: '.4s', borderRadius: '24px'
+              }}></span>
+              <span style={{
+                position: 'absolute', content: '""', height: '16px', width: '16px', left: searchMethod === 'vectorless' ? '29px' : '4px', bottom: '4px',
+                backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+              }}></span>
+            </label>
+            <span style={{ color: searchMethod === 'vectorless' ? '#28a745' : '#888', fontWeight: searchMethod === 'vectorless' ? 'bold' : 'normal' }}>Vectorless</span>
+          </div>
+
           <a href="/documents" style={{ padding: '8px 15px', backgroundColor: '#28a745', color: 'white', textDecoration: 'none', borderRadius: '5px' }}>📄 Documents</a>
           <button onClick={handleLogout} style={{ padding: '8px 15px', cursor: 'pointer' }}>Logout</button>
         </div>

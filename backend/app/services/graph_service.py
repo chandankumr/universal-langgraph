@@ -145,6 +145,7 @@ class GraphService:
         thread_id = data.get("thread_id") or str(uuid.uuid4())
         question = data.get("question", "")
         conversation_history = data.get("conversation_history", [])
+        search_method = data.get("search_method", "vector")
         
         # ✅ 1. Get User Preferences
         from app.models import UserPreference
@@ -152,9 +153,11 @@ class GraphService:
             UserPreference.user_id == user_id
         ).first()
         
-        provider = pref.preferred_llm_provider if pref else "ollama"
-        model = pref.preferred_llm_model if pref else None
-        
+        # provider = pref.preferred_llm_provider if pref else "ollama"
+        # model = pref.preferred_llm_model if pref else None
+        provider = pref.preferred_llm_provider if pref else "groq" 
+        model = pref.preferred_llm_model if pref else "llama-3.1-8b-instant"
+
         # ✅ 2. Decrypt API Key if needed
         api_key = None
         if pref and pref.custom_api_keys and provider in pref.custom_api_keys:
@@ -174,6 +177,17 @@ class GraphService:
             elif provider == "groq" and settings.GROQ_API_KEY:
                 api_key = settings.GROQ_API_KEY
                 logger.info("🔑 Using Groq API Key from .env fallback")
+            # Only try Ollama if explicitly requested (no key needed)
+            elif provider == "ollama":
+                logger.warning("⚠️ Using Ollama (ensure 'ollama serve' is running)")
+
+            if not api_key and provider != "ollama":
+                return {
+                    "thread_id": thread_id,
+                    "question": question,
+                    "answer": f"Error: {provider} API Key missing. Please configure in settings.",
+                    "status": "error"
+                }
         
         config = {
             "configurable": {
@@ -181,7 +195,8 @@ class GraphService:
                 # ✅ 3. Pass LLM config to graph nodes
                 "llm_provider": provider,
                 "llm_model": model,
-                "llm_api_key": api_key
+                "llm_api_key": api_key,
+                "search_method": search_method
             }
         }
         
@@ -193,7 +208,8 @@ class GraphService:
             "question": question,
             "answer": "",
             "router_decision": "",
-            "documents": []
+            "documents": [],
+            "search_method": search_method
         }
         
         try:
@@ -210,14 +226,24 @@ class GraphService:
                 "router_decision": final_state.get("router_decision", "search"),
                 "documents_retrieved": len(final_state.get("documents", [])),
                 "model_used": f"{provider}/{model}",
+                "search_method": search_method,
                 "status": "success"
             }
             
-            logger.info(f"✅ Query completed using {provider}/{model}")
+            logger.info(f"✅ Query completed using {provider}/{model} | Method: {search_method}")
             return result
             
         except Exception as e:
             logger.error(f"❌ Query execution error: {str(e)}")
+            # Specific check for Ollama connection error
+            if "Connection refused" in str(e) and provider == "ollama":
+                return {
+                    "thread_id": thread_id,
+                    "question": question,
+                    "answer": "Error: Could not connect to Ollama. Please run 'ollama serve' or switch to Groq in settings.",
+                    "status": "error"
+                }
+
             return {
                 "thread_id": thread_id,
                 "question": question,

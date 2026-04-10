@@ -25,16 +25,21 @@
 
 ## 🎥 Live Demo & Screenshots
 
-### 🔍 Querying a 699-Page Technical Manual
+### 📊 Multi-Document Performance (4 Documents)
 
-*Successfully retrieved and synthesized information from a 5MB PDF (`javanotes5.pdf`) using Hybrid Search + Re-Ranking.*
+*Tested with 4 technical documents across Java, Python, JavaScript, and OOP.*
 
-- **Challenge:** Accurately finding specific programming concepts scattered across 699 pages
-- **Solution:** Retrieved 45 candidates, re-ranked to top 5 using `ms-marco-MiniLM` for maximum precision
-- **Performance:** Warm cache response time < **3 seconds**
+| Metric | Value |
+|--------|-------|
+| **Total Documents** | 4 PDFs |
+| **Total Chunks** | 4,464 |
+| **Total Size** | 21.35 MB |
+| **Vector Search** | 1.3s - 3.0s |
+| **Vectorless (Cached)** | 0.9s - 1.4s |
+| **Multi-Doc Isolation** | 100% Accurate |
 
 <p align="center">
-  <img src="docs/java_query.png" width="85%" alt="Java Query Demo" />
+  <img src="docs/multi-doc-performance.png" width="85%" alt="Network Performance Logs" />
 </p>
 
 ---
@@ -424,6 +429,38 @@ Evaluated on **javanotes5.pdf** (699 pages) using **5+ test queries**.
 
 ---
 
+## ⚡ Performance Benchmarks
+
+### Single Document (javanotes5.pdf)
+
+| Metric | Value |
+|--------|-------|
+| Pages | 699 |
+| Chunks | 2,623 |
+| Size | 5.1 MB |
+| Vector Search | ~2.0s |
+| Vectorless (Cached) | ~1.0s |
+
+### Multi-Document (4 PDFs)
+
+| Metric | Value |
+|--------|-------|
+| Documents | 4 (Java, Python, JS, OOP) |
+| Chunks | 4,464 |
+| Size | 21.35 MB |
+| Vector Search | 1.3s - 3.0s |
+| Vectorless (Cached) | 0.9s - 1.4s |
+| First Query (Cache Build) | ~6.0s |
+
+### Key Insights
+
+- **BM25 Caching:** First query builds index (~6s), subsequent queries < 1.5s
+- **Vector Consistency:** Stable 1-3s regardless of document count
+- **Context Optimization:** Reduced from 15 to 8 chunks to fit LLM token limits
+- **Multi-Tenant:** Accurate document isolation across collections
+
+---
+
 ## 🛣️ Roadmap
 
 - [x] MCP Server integration for tool use
@@ -431,10 +468,14 @@ Evaluated on **javanotes5.pdf** (699 pages) using **5+ test queries**.
 - [x] RAGAS evaluation framework
 - [x] Streaming UI with SSE
 - [x] Hybrid Search + Re-Ranking
+- [x] Vectorless RAG (BM25) with UI toggle
+- [x] Multi-document support (4,464 chunks tested)
+- [x] Parent-Child indexing with SQL persistence
+- [x] BM25 caching for sub-second vectorless search
 - [ ] Azure AI Search connector
 - [ ] Workflow visual builder (Drag & Drop)
 - [ ] Advanced Observability (LangSmith/Arize)
-- [ ] Kubernetes Helm Charts 
+- [ ] Kubernetes Helm Charts
 
 ---
 
